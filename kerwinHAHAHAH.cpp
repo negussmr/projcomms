@@ -169,17 +169,29 @@ void setup() {
     });
 
     // Capture image
-    server.on("/capture", HTTP_GET, []() {
-        camera_fb_t *fb = esp_camera_fb_get();
-        if (!fb) {
-            server.send(500, "text/plain", "Camera capture failed");  // ← FIXED: no _P
-            return;
-        }
-        // ✅ FIXED: Use server.send_P (not server.send)
-        server.send_P(200, "image/jpeg", fb->buf, fb->len);  // ← FIXED: send_P with 3 params
-        esp_camera_fb_return(fb);
-    });
+server.on("/capture", HTTP_GET, []() {
+    camera_fb_t *fb = esp_camera_fb_get();
 
+    if (!fb) {
+        server.send(500, "text/plain", "Camera capture failed");
+        return;
+    }
+
+    WiFiClient client = server.client();
+
+    client.printf(
+        "HTTP/1.1 200 OK\r\n"
+        "Content-Type: image/jpeg\r\n"
+        "Content-Length: %u\r\n"
+        "Connection: close\r\n"
+        "Cache-Control: no-cache\r\n\r\n",
+        fb->len
+    );
+
+    client.write(fb->buf, fb->len);
+
+    esp_camera_fb_return(fb);
+});
     // Get detections from Python server
     server.on("/detections", HTTP_GET, []() {
         // Take photo
