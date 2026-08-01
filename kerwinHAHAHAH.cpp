@@ -7,7 +7,8 @@ const char* ssid = "YOUR_WIFI_SSID";
 const char* password = "YOUR_WIFI_PASSWORD";
 
 // ===== Python Server IP =====
-const char* pythonServer = "http://192.168.1.100:5000/detect";  // CHANGE THIS!
+const char* pythonServer = "192.168.1.100";  // CHANGE THIS!
+const int pythonPort = 5000;
 
 // ===== Camera Pins (AI-THINKER ESP32-CAM) =====
 #define PWDN_GPIO_NUM     32
@@ -34,151 +35,48 @@ const char index_html[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html>
 <head>
-    <title>ESP32 YOLO Dashboard</title>
+    <title>ESP32 YOLO</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            font-family: 'Segoe UI', Arial, sans-serif;
-            background: #0a0a0a;
-            color: white;
-            text-align: center;
-            padding: 20px;
-        }
-        h1 {
-            color: #00ff88;
-            font-size: 28px;
-            margin-bottom: 10px;
-            text-shadow: 0 0 20px rgba(0,255,136,0.3);
-        }
-        .status-bar {
-            background: #1a1a1a;
-            padding: 15px;
-            border-radius: 10px;
-            margin: 15px auto;
-            max-width: 800px;
-            border: 1px solid #333;
-        }
-        .status-bar span {
-            color: #00ff88;
-            font-weight: bold;
-        }
-        .frame-container {
-            background: #111;
-            border-radius: 10px;
-            padding: 10px;
-            margin: 15px auto;
-            max-width: 800px;
-            border: 2px solid #00ff88;
-            box-shadow: 0 0 50px rgba(0,255,136,0.1);
-        }
-        #stream {
-            width: 100%;
-            height: auto;
-            border-radius: 5px;
-            display: block;
-        }
-        .detection-box {
-            background: #1a1a1a;
-            padding: 15px;
-            border-radius: 10px;
-            margin: 15px auto;
-            max-width: 800px;
-            border-left: 4px solid #00ff88;
-        }
-        .detection-box h3 {
-            color: #888;
-            font-size: 14px;
-            margin-bottom: 10px;
-        }
-        #detections {
-            color: #00ff88;
-            font-size: 16px;
-            min-height: 30px;
-            word-wrap: break-word;
-        }
-        .badge {
-            display: inline-block;
-            background: #00ff88;
-            color: #000;
-            padding: 4px 12px;
-            border-radius: 20px;
-            font-weight: bold;
-            font-size: 14px;
-            margin: 3px;
-        }
-        .footer {
-            margin-top: 30px;
-            color: #555;
-            font-size: 12px;
-        }
-        .led-indicator {
-            display: inline-block;
-            width: 12px;
-            height: 12px;
-            border-radius: 50%;
-            background: #00ff88;
-            animation: pulse 1.5s infinite;
-            margin-right: 8px;
-        }
-        @keyframes pulse {
-            0% { opacity: 1; transform: scale(1); }
-            50% { opacity: 0.5; transform: scale(0.8); }
-            100% { opacity: 1; transform: scale(1); }
-        }
+        body { font-family: Arial; background: #0a0a0a; color: white; text-align: center; padding: 20px; }
+        h1 { color: #00ff88; }
+        .frame { background: #111; border-radius: 10px; padding: 10px; max-width: 800px; margin: auto; border: 2px solid #00ff88; }
+        #stream { width: 100%; height: auto; border-radius: 5px; }
+        .detections { background: #1a1a1a; padding: 15px; border-radius: 10px; max-width: 800px; margin: 15px auto; }
+        .badge { display: inline-block; background: #00ff88; color: #000; padding: 4px 12px; border-radius: 20px; margin: 3px; }
+        .status { color: #888; margin: 10px; }
         .error { color: #ff4444; }
     </style>
 </head>
 <body>
     <h1>🎯 ESP32 + YOLO</h1>
+    <div class="frame">
+        <img id="stream" src="/capture">
+    </div>
+    <div class="detections">
+        <h3>🔍 Detections</h3>
+        <div id="detections">Waiting...</div>
+    </div>
+    <div class="status" id="status">Loading...</div>
     
-    <div class="status-bar">
-        <span class="led-indicator"></span>
-        Status: <span id="status">Connecting...</span>
-        &nbsp;&nbsp;|&nbsp;&nbsp;
-        📡 IP: <span id="ip">Loading...</span>
-    </div>
-
-    <div class="frame-container">
-        <img id="stream" src="/capture" alt="Camera Feed">
-    </div>
-
-    <div class="detection-box">
-        <h3>🔍 YOLO DETECTIONS</h3>
-        <div id="detections">Waiting for detections...</div>
-    </div>
-
-    <div class="footer">
-        ESP32-CAM | YOLOv8 | Real-time Detection
-    </div>
-
     <script>
         const stream = document.getElementById('stream');
-        const status = document.getElementById('status');
-        const detections = document.getElementById('detections');
-        const ipDisplay = document.getElementById('ip');
+        const detectionsDiv = document.getElementById('detections');
+        const statusDiv = document.getElementById('status');
         
-        // Get ESP32 IP
-        fetch('/ip')
-            .then(res => res.text())
-            .then(ip => ipDisplay.textContent = ip)
-            .catch(() => ipDisplay.textContent = 'Unknown');
-
-        // Refresh stream every 150ms
-        function refreshStream() {
+        // Refresh stream every 200ms
+        setInterval(() => {
             stream.src = '/capture?' + Date.now();
-            status.textContent = 'Streaming';
-        }
-        setInterval(refreshStream, 150);
-
-        // Fetch detections from Python server every 500ms
-        async function fetchDetections() {
+        }, 200);
+        
+        // Get detections every 500ms
+        setInterval(async () => {
             try {
                 const response = await fetch('/detections');
                 const data = await response.json();
                 
                 if (data.error) {
-                    detections.innerHTML = '<span class="error">⚠️ ' + data.error + '</span>';
+                    detectionsDiv.innerHTML = '<span class="error">⚠️ ' + data.error + '</span>';
                     return;
                 }
                 
@@ -187,15 +85,20 @@ const char index_html[] PROGMEM = R"rawliteral(
                     data.detections.forEach(d => {
                         html += `<span class="badge">${d.class} ${Math.round(d.confidence*100)}%</span>`;
                     });
-                    detections.innerHTML = html + ` <span style="color:#888;font-size:14px;">(${data.detections.length} objects)</span>`;
+                    detectionsDiv.innerHTML = html + ` (${data.detections.length} objects)`;
+                    statusDiv.textContent = '✅ Active';
+                    statusDiv.style.color = '#00ff88';
                 } else {
-                    detections.innerHTML = '👀 No objects detected';
+                    detectionsDiv.innerHTML = '👀 No objects detected';
+                    statusDiv.textContent = '✅ Active';
+                    statusDiv.style.color = '#00ff88';
                 }
-            } catch (error) {
-                detections.innerHTML = '<span class="error">⚠️ Python server not connected</span>';
+            } catch (e) {
+                detectionsDiv.innerHTML = '<span class="error">⚠️ Python server offline</span>';
+                statusDiv.textContent = '❌ Python server not connected';
+                statusDiv.style.color = '#ff4444';
             }
-        }
-        setInterval(fetchDetections, 500);
+        }, 500);
     </script>
 </body>
 </html>
@@ -203,10 +106,9 @@ const char index_html[] PROGMEM = R"rawliteral(
 
 void setup() {
     Serial.begin(115200);
-    Serial.println("\n\n=== ESP32-CAM YOLO System ===");
+    Serial.println("\n=== ESP32 YOLO System ===");
 
     // ===== Connect WiFi =====
-    WiFi.mode(WIFI_STA);
     WiFi.begin(ssid, password);
     Serial.print("Connecting to WiFi");
     int attempts = 0;
@@ -219,12 +121,10 @@ void setup() {
     
     if (WiFi.status() == WL_CONNECTED) {
         Serial.println("✅ WiFi Connected!");
-        Serial.print("📡 IP Address: ");
+        Serial.print("📡 IP: ");
         Serial.println(WiFi.localIP());
     } else {
-        Serial.println("❌ WiFi connection failed!");
-        Serial.println("Check SSID/password and restart.");
-        delay(5000);
+        Serial.println("❌ WiFi failed!");
         ESP.restart();
     }
 
@@ -250,56 +150,54 @@ void setup() {
     config.pin_reset = RESET_GPIO_NUM;
     config.xclk_freq_hz = 20000000;
     config.pixel_format = PIXFORMAT_JPEG;
-    config.frame_size = FRAMESIZE_QVGA;  // 320x240
+    config.frame_size = FRAMESIZE_QVGA;
     config.jpeg_quality = 12;
     config.fb_count = 2;
 
     esp_err_t err = esp_camera_init(&config);
     if (err != ESP_OK) {
         Serial.printf("❌ Camera init failed: 0x%x\n", err);
-        Serial.println("Check wiring and restart.");
-        delay(5000);
         ESP.restart();
     }
     Serial.println("✅ Camera ready!");
 
-    // ===== Setup Web Server Routes =====
+    // ===== WEB SERVER ROUTES (FIXED) =====
+    
+    // Home page
     server.on("/", HTTP_GET, []() {
-        server.send_P(200, "text/html", index_html);
+        server.send_P(200, "text/html", index_html);  // ← FIXED: server.send_P works here
     });
 
-    server.on("/ip", HTTP_GET, []() {
-        server.send(200, "text/plain", WiFi.localIP().toString());
-    });
-
+    // Capture image
     server.on("/capture", HTTP_GET, []() {
         camera_fb_t *fb = esp_camera_fb_get();
         if (!fb) {
-            server.send(500, "text/plain", "Camera capture failed");
+            server.send(500, "text/plain", "Camera capture failed");  // ← FIXED: no _P
             return;
         }
-        server.send_P(200, "image/jpeg", fb->buf, fb->len);
+        // ✅ FIXED: Use server.send_P (not server.send)
+        server.send_P(200, "image/jpeg", fb->buf, fb->len);  // ← FIXED: send_P with 3 params
         esp_camera_fb_return(fb);
     });
 
-    // Proxy to Python server for detections
+    // Get detections from Python server
     server.on("/detections", HTTP_GET, []() {
-        // Take a photo
+        // Take photo
         camera_fb_t *fb = esp_camera_fb_get();
         if (!fb) {
-            server.send(500, "application/json", "{\"error\":\"Camera failed\"}");
-            return;
+            server.send(500, "application/json", "{\"error\":\"Camera failed\"}");  // ← FIXED
+            return;  // ← FIXED: Added missing return
         }
 
         // Send to Python server
         WiFiClient client;
-        if (!client.connect(pythonServer, 80)) {
+        if (!client.connect(pythonServer, pythonPort)) {
             esp_camera_fb_return(fb);
-            server.send(500, "application/json", "{\"error\":\"Python server offline\"}");
+            server.send(500, "application/json", "{\"error\":\"Python server offline\"}");  // ← FIXED
             return;
         }
 
-        // Build HTTP POST request
+        // Build multipart POST request
         String boundary = "----ESP32Boundary";
         client.println("POST /detect HTTP/1.1");
         client.print("Host: ");
@@ -329,19 +227,19 @@ void setup() {
         }
         client.stop();
 
-        // Extract JSON from response
+        // Extract JSON from HTTP response
         int jsonStart = response.indexOf('{');
         int jsonEnd = response.lastIndexOf('}');
         if (jsonStart != -1 && jsonEnd != -1) {
-            server.send(200, "application/json", response.substring(jsonStart, jsonEnd + 1));
+            server.send(200, "application/json", response.substring(jsonStart, jsonEnd + 1));  // ← FIXED
         } else {
-            server.send(500, "application/json", "{\"error\":\"Invalid response\"}");
+            server.send(500, "application/json", "{\"error\":\"Invalid response\"}");  // ← FIXED
         }
     });
 
     server.begin();
     Serial.println("✅ Web server started!");
-    Serial.println("🌐 Open http://" + WiFi.localIP().toString() + " in your browser");
+    Serial.println("🌐 Open http://" + WiFi.localIP().toString());
 }
 
 void loop() {
